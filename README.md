@@ -1,13 +1,7 @@
 # llmgateway
 
-Generic async LLM gateway with:
-
-- provider and task specs
-- shared HTTP transport
-- concurrency limits
-- retry handling
-- JSON result helpers
-- YAML runtime config loading
+Generic async LLM gateway with shared transport, concurrency control, retry
+handling, and tier-based task routing.
 
 ## Install
 
@@ -27,19 +21,23 @@ provider:
   headers: {}
   model_map: {}
 settings:
-  fallback_model: gpt-5.4
+  strong_model: gpt-5.4
+  weak_model: gpt-5.4-mini
+  strong_reasoning_effort: high
+  weak_reasoning_effort: low
   max_concurrent: 32
   retry_max: 2
   transport_retries: 5
   timeout: 30
 tasks:
   analysis:
-    model: gpt-5.4
-    reasoning_effort: low
+    tier: weak
   planner:
-    model: gpt-5.4
-    reasoning_effort: high
+    tier: strong
 ```
+
+`settings` owns the concrete strong/weak model pair. `tasks` usually only need a
+`tier`.
 
 ## Usage
 

@@ -5,6 +5,7 @@ import asyncio
 from .runtime import (
     normalize_model_request,
     prefers_anthropic_messages,
+    prefers_litellm,
     prefers_openai_chat,
     prefers_openai_responses,
     resolve_temperature,
@@ -12,6 +13,7 @@ from .runtime import (
 from .spec import CallResult, RuntimeSpec, TaskRequest, Validator
 from .transport import (
     anthropic_messages_completion,
+    litellm_completion,
     openai_chat_completion,
     openai_responses_completion,
 )
@@ -41,7 +43,14 @@ class LLMService:
 
     def _resolved_request(self, request: TaskRequest) -> tuple[str, str, float, int]:
         task = self.runtime.task(request.task)
-        requested_model = str(request.model or task.model or self.runtime.fallback_model or "").strip()
+        requested_tier = str(request.tier or task.tier or "").strip().lower()
+        requested_model = str(
+            request.model
+            or task.model
+            or self.runtime.model_for_tier(requested_tier)
+            or self.runtime.fallback_model
+            or ""
+        ).strip()
         if not requested_model:
             raise RuntimeError(f"No model configured for task '{request.task}'.")
 
@@ -52,10 +61,25 @@ class LLMService:
             task.temperature if request.temperature is None else float(request.temperature),
         )
         reasoning_effort = str(
-            request.reasoning_effort or task.reasoning_effort or inferred_reasoning_effort or ""
+            request.reasoning_effort
+            or task.reasoning_effort
+            or self.runtime.reasoning_effort_for_tier(requested_tier)
+            or inferred_reasoning_effort
+            or ""
         ).strip().lower()
         max_tokens = int(request.max_tokens or task.max_tokens or 4000)
         return normalized_model, reasoning_effort, temperature, max_tokens
+
+    def _requested_model_text(self, request: TaskRequest) -> str:
+        task = self.runtime.task(request.task)
+        requested_tier = str(request.tier or task.tier or "").strip().lower()
+        return str(
+            request.model
+            or task.model
+            or self.runtime.model_for_tier(requested_tier)
+            or self.runtime.fallback_model
+            or ""
+        ).strip()
 
     async def _complete_once(
         self,
@@ -97,6 +121,15 @@ class LLMService:
                 timeout=timeout,
                 temperature=temperature,
             )
+        if prefers_litellm(provider):
+            return await litellm_completion(
+                provider=provider,
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                temperature=temperature,
+            )
         return await openai_responses_completion(
             provider=provider,
             model=model,
@@ -111,35 +144,42 @@ class LLMService:
         provider = self._provider_dict()
         self._validate_provider(provider)
         normalized_model, reasoning_effort, temperature, max_tokens = self._resolved_request(request)
+        timeout_sec = float(self.runtime.timeout)
+        request_deadline = max(timeout_sec + 5.0, timeout_sec * 1.25)
 
         async with self._semaphore:
             for attempt in range(max(1, int(self.runtime.transport_retries))):
                 try:
-                    text = await self._complete_once(
-                        provider=provider,
-                        model=normalized_model,
-                        messages=request.messages,
-                        timeout=float(self.runtime.timeout),
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        reasoning_effort=reasoning_effort,
+                    text = await asyncio.wait_for(
+                        self._complete_once(
+                            provider=provider,
+                            model=normalized_model,
+                            messages=request.messages,
+                            timeout=timeout_sec,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            reasoning_effort=reasoning_effort,
+                        ),
+                        timeout=request_deadline,
                     )
                     if text.strip():
                         return CallResult(
                             task=request.task,
                             text=text,
-                            requested_model=str(
-                                request.model
-                                or self.runtime.task(request.task).model
-                                or self.runtime.fallback_model
-                                or ""
-                            ).strip(),
+                            requested_model=self._requested_model_text(request),
                             normalized_model=normalized_model,
                             reasoning_effort=reasoning_effort,
                             temperature=temperature,
                             max_tokens=max_tokens,
                         )
                     raise RuntimeError("LLM response text was empty. Check provider api_style/response format.")
+                except asyncio.TimeoutError as exc:
+                    requested_model = self._requested_model_text(request) or normalized_model
+                    raise RuntimeError(
+                        f"LLM request timed out for task '{request.task}' "
+                        f"after {request_deadline:.1f}s "
+                        f"(model='{requested_model}', timeout={timeout_sec:.1f}s)."
+                    ) from exc
                 except Exception:
                     if attempt >= max(1, int(self.runtime.transport_retries)) - 1:
                         raise
@@ -163,13 +203,14 @@ class LLMService:
             try:
                 text = await self.generate_text(
                     TaskRequest(
-                        task=request.task,
-                        messages=messages,
-                        model=request.model,
-                        temperature=request.temperature,
-                        reasoning_effort=request.reasoning_effort,
-                        max_tokens=request.max_tokens,
-                    )
+                            task=request.task,
+                            messages=messages,
+                            model=request.model,
+                            tier=request.tier,
+                            temperature=request.temperature,
+                            reasoning_effort=request.reasoning_effort,
+                            max_tokens=request.max_tokens,
+                        )
                 )
             except Exception as exc:
                 if attempt >= int(self.runtime.retry_max):

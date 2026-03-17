@@ -52,6 +52,14 @@ def prefers_openai_chat(provider: dict[str, Any]) -> bool:
     return provider_type == "openai"
 
 
+def prefers_litellm(provider: dict[str, Any]) -> bool:
+    api_style = str(provider.get("api_style", "") or "").strip().lower()
+    if api_style:
+        return api_style == "litellm"
+    provider_type = str(provider.get("provider_type", "") or "").strip().lower()
+    return provider_type == "litellm"
+
+
 def prefers_anthropic_messages(provider: dict[str, Any], model: str) -> bool:
     api_style = str(provider.get("api_style", "") or "").strip().lower()
     if api_style:
@@ -73,6 +81,7 @@ __all__ = [
     "apply_model_map",
     "normalize_model_request",
     "prefers_anthropic_messages",
+    "prefers_litellm",
     "prefers_openai_chat",
     "prefers_openai_responses",
     "resolve_temperature",

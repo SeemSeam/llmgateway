@@ -16,6 +16,7 @@ from .transport_text import (
     extract_anthropic_text,
     extract_openai_chat_text,
     extract_openai_responses_text,
+    extract_text_from_litellm_response,
 )
 
 
@@ -114,6 +115,30 @@ async def anthropic_messages_completion(*, provider: dict[str, Any], model: str,
     return extract_anthropic_text(data)
 
 
+async def litellm_completion(*, provider: dict[str, Any], model: str, messages: list[dict[str, str]], max_tokens: int, timeout: float, temperature: float) -> str:
+    import litellm
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": int(max_tokens),
+        "temperature": float(temperature),
+        "timeout": float(timeout),
+    }
+    base_url = str(provider.get("base_url", "") or "").strip()
+    api_key = str(provider.get("api_key", "") or "").strip()
+    headers = provider.get("headers", {}) or {}
+    if base_url:
+        kwargs["base_url"] = base_url
+    if api_key:
+        kwargs["api_key"] = api_key
+    if isinstance(headers, dict) and headers:
+        kwargs["extra_headers"] = headers
+
+    resp = await litellm.acompletion(**kwargs)
+    return extract_text_from_litellm_response(resp)
+
+
 async def close_http_clients() -> None:
     global _SYNC_HTTP_CLIENT
     with _SYNC_HTTP_CLIENT_LOCK:
@@ -126,6 +151,7 @@ async def close_http_clients() -> None:
 __all__ = [
     "anthropic_messages_completion",
     "close_http_clients",
+    "litellm_completion",
     "openai_chat_completion",
     "openai_responses_completion",
 ]

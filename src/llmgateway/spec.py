@@ -20,7 +20,8 @@ class ProviderSpec:
 
 @dataclass(slots=True, frozen=True)
 class TaskSpec:
-    model: str
+    model: str = ""
+    tier: str = ""
     temperature: float = 0.0
     reasoning_effort: str = ""
     max_tokens: int = 4000
@@ -30,6 +31,10 @@ class TaskSpec:
 class RuntimeSpec:
     provider: ProviderSpec
     fallback_model: str = ""
+    strong_model: str = ""
+    weak_model: str = ""
+    strong_reasoning_effort: str = ""
+    weak_reasoning_effort: str = ""
     max_concurrent: int = 20
     retry_max: int = 3
     timeout: float = 30.0
@@ -42,12 +47,29 @@ class RuntimeSpec:
             return selected
         return TaskSpec(model=self.fallback_model)
 
+    def model_for_tier(self, tier: str) -> str:
+        tier_text = str(tier or "").strip().lower()
+        if tier_text == "strong":
+            return str(self.strong_model or self.fallback_model or "").strip()
+        if tier_text == "weak":
+            return str(self.weak_model or self.strong_model or self.fallback_model or "").strip()
+        return str(self.fallback_model or self.strong_model or self.weak_model or "").strip()
+
+    def reasoning_effort_for_tier(self, tier: str) -> str:
+        tier_text = str(tier or "").strip().lower()
+        if tier_text == "strong":
+            return str(self.strong_reasoning_effort or "").strip().lower()
+        if tier_text == "weak":
+            return str(self.weak_reasoning_effort or "").strip().lower()
+        return ""
+
 
 @dataclass(slots=True, frozen=True)
 class TaskRequest:
     task: str
     messages: list[Message]
     model: str = ""
+    tier: str = ""
     temperature: float | None = None
     reasoning_effort: str = ""
     max_tokens: int | None = None
