@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 
+from .config import load_provider_state, write_provider_state
 from .runtime import (
     normalize_model_request,
     prefers_anthropic_messages,
@@ -24,9 +27,12 @@ class LLMService:
         self.runtime = runtime
         self._semaphore = asyncio.Semaphore(max(1, int(runtime.max_concurrent)))
         self._sleep = asyncio.sleep
+        self._provider_preferences = load_provider_state()
+        self._config_provider_key = self._config_provider_preference_key()
+        self._preferred_provider_key = self._provider_preferences.get(self._config_provider_key, "")
 
-    def _provider_dict(self) -> dict[str, object]:
-        provider = self.runtime.provider
+    def _provider_dict(self, provider_spec=None) -> dict[str, object]:
+        provider = provider_spec or self.runtime.provider
         return {
             "provider_type": provider.provider_type,
             "api_style": provider.api_style,
@@ -36,25 +42,79 @@ class LLMService:
             "model_map": dict(provider.model_map),
         }
 
+    def _provider_dicts(self) -> list[dict[str, object]]:
+        providers = [self._provider_dict(provider) for provider in self.runtime.providers]
+        preferred_key = str(self._preferred_provider_key or "").strip()
+        if not preferred_key:
+            return providers
+        preferred: list[dict[str, object]] = []
+        others: list[dict[str, object]] = []
+        for provider in providers:
+            if self._provider_key(provider) == preferred_key and not preferred:
+                preferred.append(provider)
+                continue
+            others.append(provider)
+        return preferred + others
+
+    def _provider_key(self, provider: dict[str, object]) -> str:
+        payload = json.dumps(provider, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _config_provider_preference_key(self) -> str:
+        providers = [self._provider_dict(provider) for provider in self.runtime.providers]
+        payload = json.dumps(providers, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _remember_provider_success(self, provider: dict[str, object]) -> None:
+        provider_key = self._provider_key(provider)
+        if provider_key == self._preferred_provider_key:
+            return
+        self._preferred_provider_key = provider_key
+        updated_preferences = dict(self._provider_preferences)
+        updated_preferences[self._config_provider_key] = provider_key
+        try:
+            write_provider_state(updated_preferences)
+        except Exception:
+            self._provider_preferences = updated_preferences
+            return
+        self._provider_preferences = updated_preferences
+
     def _validate_provider(self, provider: dict[str, object]) -> None:
         base_url = str(provider.get("base_url", "") or "").strip()
         if not base_url:
             raise RuntimeError("LLM base_url is not configured.")
 
-    def _resolved_request(self, request: TaskRequest) -> tuple[str, str, float, int]:
+    def _timeout_error(
+        self,
+        *,
+        request: TaskRequest,
+        provider: dict[str, object],
+        normalized_model: str,
+        timeout_sec: float,
+        request_deadline: float,
+    ) -> RuntimeError:
+        requested_model = self._requested_model_text(request) or normalized_model
+        base_url = str(provider.get("base_url", "") or "").strip()
+        max_concurrent = max(1, int(self.runtime.max_concurrent))
+        message = (
+            f"LLM request timed out for task '{request.task}' after {request_deadline:.1f}s "
+            f"(model='{requested_model}', timeout={timeout_sec:.1f}s, "
+            f"max_concurrent={max_concurrent}, base_url='{base_url}'). "
+            "Consider increasing settings.timeout or lowering settings.max_concurrent."
+        )
+        return RuntimeError(message)
+
+    def _resolved_request(
+        self,
+        request: TaskRequest,
+        provider: dict[str, object],
+    ) -> tuple[str, str, float, int]:
         task = self.runtime.task(request.task)
         requested_tier = str(request.tier or task.tier or "").strip().lower()
-        requested_model = str(
-            request.model
-            or task.model
-            or self.runtime.model_for_tier(requested_tier)
-            or self.runtime.fallback_model
-            or ""
-        ).strip()
+        requested_model = self._requested_model_text(request)
         if not requested_model:
             raise RuntimeError(f"No model configured for task '{request.task}'.")
 
-        provider = self._provider_dict()
         normalized_model, inferred_reasoning_effort = normalize_model_request(provider, requested_model)
         temperature = resolve_temperature(
             normalized_model,
@@ -140,51 +200,94 @@ class LLMService:
             reasoning_effort=reasoning_effort,
         )
 
+    def _provider_label(self, provider: dict[str, object], index: int) -> str:
+        provider_type = str(provider.get("provider_type", "") or "").strip() or "unknown"
+        base_url = str(provider.get("base_url", "") or "").strip() or "<missing>"
+        return f"provider #{index} ({provider_type}, {base_url})"
+
+    def _all_providers_failed_error(
+        self,
+        request: TaskRequest,
+        failures: list[str],
+    ) -> RuntimeError:
+        message = (
+            f"LLM request failed for task '{request.task}' across all configured providers:\n"
+            + "\n".join(failures)
+        )
+        return RuntimeError(message)
+
     async def generate(self, request: TaskRequest) -> CallResult:
-        provider = self._provider_dict()
-        self._validate_provider(provider)
-        normalized_model, reasoning_effort, temperature, max_tokens = self._resolved_request(request)
+        providers = self._provider_dicts()
+        if not providers:
+            raise RuntimeError("No LLM providers are configured.")
         timeout_sec = float(self.runtime.timeout)
         request_deadline = max(timeout_sec + 5.0, timeout_sec * 1.25)
+        transport_retries = max(1, int(self.runtime.transport_retries))
+        failures: list[str] = []
+        last_error: Exception | None = None
 
         async with self._semaphore:
-            for attempt in range(max(1, int(self.runtime.transport_retries))):
+            for provider_index, provider in enumerate(providers, start=1):
                 try:
-                    text = await asyncio.wait_for(
-                        self._complete_once(
-                            provider=provider,
-                            model=normalized_model,
-                            messages=request.messages,
-                            timeout=timeout_sec,
-                            temperature=temperature,
-                            max_tokens=max_tokens,
-                            reasoning_effort=reasoning_effort,
-                        ),
-                        timeout=request_deadline,
+                    self._validate_provider(provider)
+                    normalized_model, reasoning_effort, temperature, max_tokens = self._resolved_request(
+                        request,
+                        provider,
                     )
-                    if text.strip():
-                        return CallResult(
-                            task=request.task,
-                            text=text,
-                            requested_model=self._requested_model_text(request),
-                            normalized_model=normalized_model,
-                            reasoning_effort=reasoning_effort,
-                            temperature=temperature,
-                            max_tokens=max_tokens,
+                except Exception as exc:
+                    last_error = exc
+                    failures.append(f"- {self._provider_label(provider, provider_index)}: {exc}")
+                    continue
+
+                for attempt in range(transport_retries):
+                    try:
+                        text = await asyncio.wait_for(
+                            self._complete_once(
+                                provider=provider,
+                                model=normalized_model,
+                                messages=request.messages,
+                                timeout=timeout_sec,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                                reasoning_effort=reasoning_effort,
+                            ),
+                            timeout=request_deadline,
                         )
-                    raise RuntimeError("LLM response text was empty. Check provider api_style/response format.")
-                except asyncio.TimeoutError as exc:
-                    requested_model = self._requested_model_text(request) or normalized_model
-                    raise RuntimeError(
-                        f"LLM request timed out for task '{request.task}' "
-                        f"after {request_deadline:.1f}s "
-                        f"(model='{requested_model}', timeout={timeout_sec:.1f}s)."
-                    ) from exc
-                except Exception:
-                    if attempt >= max(1, int(self.runtime.transport_retries)) - 1:
-                        raise
+                        if text.strip():
+                            self._remember_provider_success(provider)
+                            return CallResult(
+                                task=request.task,
+                                text=text,
+                                requested_model=self._requested_model_text(request),
+                                normalized_model=normalized_model,
+                                reasoning_effort=reasoning_effort,
+                                temperature=temperature,
+                                max_tokens=max_tokens,
+                            )
+                        raise RuntimeError(
+                            "LLM response text was empty. Check provider api_style/response format."
+                        )
+                    except asyncio.TimeoutError as exc:
+                        last_error = self._timeout_error(
+                            request=request,
+                            provider=provider,
+                            normalized_model=normalized_model,
+                            timeout_sec=timeout_sec,
+                            request_deadline=request_deadline,
+                        )
+                    except Exception as exc:
+                        last_error = exc
+
+                    if attempt >= transport_retries - 1:
+                        failures.append(
+                            f"- {self._provider_label(provider, provider_index)}: {last_error}"
+                        )
+                        break
                     await self._sleep(2 ** attempt + 1)
-        raise RuntimeError("LLM request failed unexpectedly.")
+
+        if last_error is not None:
+            raise self._all_providers_failed_error(request, failures) from last_error
+        raise self._all_providers_failed_error(request, failures)
 
     async def generate_text(self, request: TaskRequest) -> str:
         result = await self.generate(request)

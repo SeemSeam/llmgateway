@@ -68,6 +68,7 @@ def build_openai_responses_payload(
         "input": input_items or [_input_message("user", "")],
         "max_output_tokens": int(max_tokens),
         "temperature": float(temperature),
+        "stream": False,
     }
     if reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}

@@ -11,15 +11,24 @@ pip install -e ".[dev]"
 
 ## Config
 
+See [llmgateway.example.yaml](llmgateway.example.yaml) for a copy-ready
+template that supports any number of providers.
+
 ```yaml
 version: 1
-provider:
-  provider_type: glm
-  api_style: openai_responses
-  base_url: https://your-backend.example
-  api_key: your-api-key
-  headers: {}
-  model_map: {}
+providers:
+  - provider_type: glm
+    api_style: openai_responses
+    base_url: https://primary-backend.example
+    api_key: your-primary-api-key
+    headers: {}
+    model_map: {}
+  - provider_type: openai
+    api_style: responses
+    base_url: https://secondary-backend.example
+    api_key: your-secondary-api-key
+    headers: {}
+    model_map: {}
 settings:
   strong_model: gpt-5.4
   weak_model: gpt-5.4-mini
@@ -37,7 +46,12 @@ tasks:
 ```
 
 `settings` owns the concrete strong/weak model pair. `tasks` usually only need a
-`tier`.
+`tier`. `providers` are tried in order, and the gateway automatically falls back
+to the next provider after the current one exhausts `settings.transport_retries`.
+After a provider succeeds, the gateway records it in `provider-state.json` under
+the user config directory and dynamically prioritizes it on later requests,
+without rewriting `config.yaml`. Legacy single-provider config under `provider:`
+is still supported.
 
 ## Usage
 

@@ -8,14 +8,19 @@ import pytest
 from llmgateway import (
     Gateway,
     LLMService,
+    load_provider_state,
     TaskRequest,
     load_runtime_spec,
     load_user_config,
+    resolve_provider_state_file,
     resolve_user_config_file,
     runtime_spec_from_dict,
     user_config_dir,
     write_user_config,
 )
+from llmgateway.runtime import prefers_openai_responses
+from llmgateway.transport import _decode_response_payload
+from llmgateway.transport_payloads import build_openai_responses_payload
 
 
 def test_load_runtime_spec_from_yaml(tmp_path: Path):
@@ -43,10 +48,118 @@ tasks:
     )
     runtime = load_runtime_spec(cfg)
     assert runtime.provider.base_url == "https://backend.example"
+    assert runtime.providers == (runtime.provider,)
     assert runtime.max_concurrent == 8
     assert runtime.task("analysis").tier == "strong"
     assert runtime.strong_model == "gpt-5.4"
     assert runtime.weak_reasoning_effort == "low"
+
+
+def test_runtime_spec_supports_multiple_providers_in_order():
+    runtime = runtime_spec_from_dict(
+        {
+            "providers": [
+                {
+                    "provider_type": "glm",
+                    "api_style": "openai_responses",
+                    "base_url": "https://primary.example",
+                    "api_key": "primary-secret",
+                },
+                {
+                    "provider_type": "openai",
+                    "api_style": "responses",
+                    "base_url": "https://secondary.example",
+                    "api_key": "secondary-secret",
+                },
+            ],
+            "settings": {"strong_model": "gpt-5.4"},
+        }
+    )
+
+    assert len(runtime.providers) == 2
+    assert runtime.provider.base_url == "https://primary.example"
+    assert runtime.providers[1].base_url == "https://secondary.example"
+
+
+def test_prefers_openai_responses_accepts_responses_alias():
+    assert prefers_openai_responses({"api_style": "responses"}) is True
+    assert prefers_openai_responses({"api_style": "openai_responses"}) is True
+
+
+def test_build_openai_responses_payload_forces_non_streaming():
+    payload = build_openai_responses_payload(
+        model="gpt-5.4",
+        messages=[{"role": "user", "content": "hello"}],
+        max_tokens=64,
+        temperature=1.0,
+        reasoning_effort="high",
+    )
+
+    assert payload["stream"] is False
+
+
+def test_decode_response_payload_supports_sse_completed_response():
+    import httpx
+
+    sse_body = "\n".join(
+        [
+            "event: response.created",
+            'data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}',
+            "",
+            "event: response.completed",
+            'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output_text":"OK","output":[{"content":[{"type":"output_text","text":"OK"}]}]}}',
+            "",
+        ]
+    )
+    resp = httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse_body)
+
+    payload = _decode_response_payload(resp)
+
+    assert payload["status"] == "completed"
+    assert payload["output_text"] == "OK"
+
+
+def test_decode_response_payload_supports_sse_deltas_without_completed_response():
+    import httpx
+
+    sse_body = "\n".join(
+        [
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"O"}',
+            "",
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"K"}',
+            "",
+        ]
+    )
+    resp = httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse_body)
+
+    payload = _decode_response_payload(resp)
+
+    assert payload["output_text"] == "OK"
+
+
+def test_decode_response_payload_prefers_done_text_over_accumulated_deltas():
+    import httpx
+
+    sse_body = "\n".join(
+        [
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"O"}',
+            "",
+            "event: response.output_text.delta",
+            'data: {"type":"response.output_text.delta","delta":"K"}',
+            "",
+            "event: response.output_text.done",
+            'data: {"type":"response.output_text.done","text":"OK"}',
+            "",
+        ]
+    )
+    resp = httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse_body)
+
+    payload = _decode_response_payload(resp)
+
+    assert payload["output_text"] == "OK"
 
 
 def test_user_config_dir_env_override(monkeypatch, tmp_path: Path):
@@ -106,6 +219,13 @@ def test_resolve_user_config_file_prefers_explicit_env(monkeypatch, tmp_path: Pa
     explicit = tmp_path / "gateway.yaml"
     monkeypatch.setenv("LLMGATEWAY_CONFIG", str(explicit))
     assert resolve_user_config_file() == explicit.resolve()
+
+
+def test_resolve_provider_state_file_prefers_user_config_dir(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("LLMGATEWAY_USER_CONFIG_DIR", str(tmp_path / "gateway-home"))
+    assert resolve_provider_state_file() == (
+        tmp_path / "gateway-home" / "provider-state.json"
+    ).resolve()
 
 
 @pytest.mark.asyncio
@@ -242,3 +362,176 @@ async def test_service_resolves_model_and_reasoning_effort_from_task_tier(monkey
     assert result.reasoning_effort == "high"
     assert seen["model"] == "gpt-5.4"
     assert seen["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_service_fails_over_to_next_provider(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("LLMGATEWAY_USER_CONFIG_DIR", str(tmp_path / "gateway-home"))
+    runtime = runtime_spec_from_dict(
+        {
+            "providers": [
+                {
+                    "provider_type": "glm",
+                    "api_style": "openai_responses",
+                    "base_url": "https://primary.example",
+                    "api_key": "primary-secret",
+                },
+                {
+                    "provider_type": "openai",
+                    "api_style": "responses",
+                    "base_url": "https://secondary.example",
+                    "api_key": "secondary-secret",
+                },
+            ],
+            "tasks": {"analysis": {"tier": "strong"}},
+            "settings": {
+                "strong_model": "gpt-5.4",
+                "transport_retries": 1,
+            },
+        }
+    )
+    service = LLMService(runtime)
+    seen_base_urls: list[str] = []
+
+    async def fake_complete_once(**kwargs):
+        provider = kwargs["provider"]
+        base_url = str(provider["base_url"])
+        seen_base_urls.append(base_url)
+        if base_url == "https://primary.example":
+            raise RuntimeError("primary unavailable")
+        return "OK secondary"
+
+    monkeypatch.setattr(service, "_complete_once", fake_complete_once)
+    monkeypatch.setattr(service, "_sleep", lambda _: asyncio.sleep(0))
+
+    result = await service.generate(
+        TaskRequest(task="analysis", messages=[{"role": "user", "content": "hello"}])
+    )
+
+    assert result.text == "OK secondary"
+    assert seen_base_urls == [
+        "https://primary.example",
+        "https://secondary.example",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_service_remembers_successful_provider_with_dynamic_priority(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("LLMGATEWAY_USER_CONFIG_DIR", str(tmp_path / "gateway-home"))
+    runtime = runtime_spec_from_dict(
+        {
+            "providers": [
+                {
+                    "provider_type": "glm",
+                    "api_style": "openai_responses",
+                    "base_url": "https://primary.example",
+                    "api_key": "primary-secret",
+                },
+                {
+                    "provider_type": "openai",
+                    "api_style": "responses",
+                    "base_url": "https://secondary.example",
+                    "api_key": "secondary-secret",
+                },
+            ],
+            "tasks": {"analysis": {"tier": "strong"}},
+            "settings": {
+                "strong_model": "gpt-5.4",
+                "transport_retries": 1,
+            },
+        }
+    )
+    service = LLMService(runtime)
+    seen_base_urls: list[str] = []
+    state = {"first_request": True}
+
+    async def fake_complete_once(**kwargs):
+        provider = kwargs["provider"]
+        base_url = str(provider["base_url"])
+        seen_base_urls.append(base_url)
+        if state["first_request"] and base_url == "https://primary.example":
+            raise RuntimeError("primary unavailable")
+        return f"OK {base_url}"
+
+    monkeypatch.setattr(service, "_complete_once", fake_complete_once)
+    monkeypatch.setattr(service, "_sleep", lambda _: asyncio.sleep(0))
+
+    first_result = await service.generate(
+        TaskRequest(task="analysis", messages=[{"role": "user", "content": "first"}])
+    )
+    state["first_request"] = False
+    second_result = await service.generate(
+        TaskRequest(task="analysis", messages=[{"role": "user", "content": "second"}])
+    )
+
+    assert first_result.text == "OK https://secondary.example"
+    assert second_result.text == "OK https://secondary.example"
+    assert seen_base_urls == [
+        "https://primary.example",
+        "https://secondary.example",
+        "https://secondary.example",
+    ]
+
+    state_path = resolve_provider_state_file()
+    assert state_path.exists()
+    saved_state = load_provider_state()
+    assert len(saved_state) == 1
+
+
+@pytest.mark.asyncio
+async def test_service_loads_dynamic_priority_from_state(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("LLMGATEWAY_USER_CONFIG_DIR", str(tmp_path / "gateway-home"))
+    runtime = runtime_spec_from_dict(
+        {
+            "providers": [
+                {
+                    "provider_type": "glm",
+                    "api_style": "openai_responses",
+                    "base_url": "https://primary.example",
+                    "api_key": "primary-secret",
+                },
+                {
+                    "provider_type": "openai",
+                    "api_style": "responses",
+                    "base_url": "https://secondary.example",
+                    "api_key": "secondary-secret",
+                },
+            ],
+            "tasks": {"analysis": {"tier": "strong"}},
+            "settings": {
+                "strong_model": "gpt-5.4",
+                "transport_retries": 1,
+            },
+        }
+    )
+    bootstrap_service = LLMService(runtime)
+
+    async def bootstrap_complete_once(**kwargs):
+        provider = kwargs["provider"]
+        if str(provider["base_url"]) == "https://primary.example":
+            raise RuntimeError("primary unavailable")
+        return "OK secondary"
+
+    monkeypatch.setattr(bootstrap_service, "_complete_once", bootstrap_complete_once)
+    monkeypatch.setattr(bootstrap_service, "_sleep", lambda _: asyncio.sleep(0))
+
+    await bootstrap_service.generate(
+        TaskRequest(task="analysis", messages=[{"role": "user", "content": "bootstrap"}])
+    )
+
+    resumed_service = LLMService(runtime)
+    seen_base_urls: list[str] = []
+
+    async def resumed_complete_once(**kwargs):
+        provider = kwargs["provider"]
+        base_url = str(provider["base_url"])
+        seen_base_urls.append(base_url)
+        return "OK"
+
+    monkeypatch.setattr(resumed_service, "_complete_once", resumed_complete_once)
+
+    await resumed_service.generate(
+        TaskRequest(task="analysis", messages=[{"role": "user", "content": "follow-up"}])
+    )
+
+    assert seen_base_urls == ["https://secondary.example"]

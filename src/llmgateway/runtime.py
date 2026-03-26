@@ -39,7 +39,7 @@ def normalize_model_request(provider: dict[str, Any], model: str) -> tuple[str, 
 def prefers_openai_responses(provider: dict[str, Any]) -> bool:
     api_style = str(provider.get("api_style", "") or "").strip().lower()
     if api_style:
-        return api_style == "openai_responses"
+        return api_style in {"openai_responses", "responses"}
     provider_type = str(provider.get("provider_type", "") or "").strip().lower()
     return provider_type == "glm"
 

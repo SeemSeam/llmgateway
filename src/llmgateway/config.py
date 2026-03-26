@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -11,13 +12,14 @@ from .spec import ProviderSpec, RuntimeSpec, TaskSpec
 
 
 USER_CONFIG_NAME = "config.yaml"
+PROVIDER_STATE_NAME = "provider-state.json"
 _ENV_REF_RE = re.compile(
     r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::-?(?P<default>[^}]*))?\}$"
 )
 
 
 def runtime_spec_from_dict(raw: dict[str, Any]) -> RuntimeSpec:
-    provider_raw = raw.get("provider", {}) if isinstance(raw.get("provider"), dict) else {}
+    providers = _provider_specs_from_raw(raw)
     settings_raw = raw.get("settings", {}) if isinstance(raw.get("settings"), dict) else {}
     tasks_raw = raw.get("tasks", {}) if isinstance(raw.get("tasks"), dict) else {}
 
@@ -34,14 +36,8 @@ def runtime_spec_from_dict(raw: dict[str, Any]) -> RuntimeSpec:
         )
 
     return RuntimeSpec(
-        provider=ProviderSpec(
-            provider_type=str(provider_raw.get("provider_type", "") or "").strip(),
-            api_style=str(provider_raw.get("api_style", "") or "").strip(),
-            base_url=str(provider_raw.get("base_url", "") or "").strip(),
-            api_key=str(provider_raw.get("api_key", "") or "").strip(),
-            headers=_normalized_headers(provider_raw.get("headers", {})),
-            model_map=_normalized_headers(provider_raw.get("model_map", {})),
-        ),
+        provider=providers[0] if providers else ProviderSpec(),
+        providers=tuple(providers),
         fallback_model=str(settings_raw.get("fallback_model", "") or "").strip(),
         strong_model=str(settings_raw.get("strong_model", "") or "").strip(),
         weak_model=str(settings_raw.get("weak_model", "") or "").strip(),
@@ -51,9 +47,9 @@ def runtime_spec_from_dict(raw: dict[str, Any]) -> RuntimeSpec:
         weak_reasoning_effort=str(
             settings_raw.get("weak_reasoning_effort", "") or ""
         ).strip().lower(),
-        max_concurrent=max(1, int(settings_raw.get("max_concurrent", 20) or 20)),
+        max_concurrent=max(1, int(settings_raw.get("max_concurrent", 12) or 12)),
         retry_max=max(0, int(settings_raw.get("retry_max", 3) or 3)),
-        timeout=float(settings_raw.get("timeout", 30) or 30),
+        timeout=float(settings_raw.get("timeout", 90) or 90),
         transport_retries=max(1, int(settings_raw.get("transport_retries", 5) or 5)),
         tasks=tasks,
     )
@@ -80,6 +76,15 @@ def resolve_user_config_file(path: str | Path | None = None) -> Path:
     if explicit:
         return Path(explicit).expanduser().resolve()
     return user_config_dir() / USER_CONFIG_NAME
+
+
+def resolve_provider_state_file(path: str | Path | None = None) -> Path:
+    if path is not None:
+        return Path(path).expanduser().resolve()
+    explicit = str(os.environ.get("LLMGATEWAY_PROVIDER_STATE", "") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return user_config_dir() / PROVIDER_STATE_NAME
 
 
 def resolve_env_value(value: str) -> str:
@@ -133,17 +138,49 @@ def write_user_config(
     return config_path
 
 
-def dump_runtime_spec(runtime: RuntimeSpec) -> dict[str, Any]:
+def load_provider_state(path: str | Path | None = None) -> dict[str, str]:
+    state_path = resolve_provider_state_file(path)
+    if not state_path.exists():
+        return {}
+    try:
+        loaded = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    preferred_by_config = loaded.get("preferred_by_config", {})
+    if not isinstance(preferred_by_config, dict):
+        return {}
     return {
+        str(key): str(value)
+        for key, value in preferred_by_config.items()
+        if str(key).strip() and str(value).strip()
+    }
+
+
+def write_provider_state(
+    preferred_by_config: dict[str, str],
+    path: str | Path | None = None,
+) -> Path:
+    state_path = resolve_provider_state_file(path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "preferred_by_config": {
+            str(key): str(value)
+            for key, value in preferred_by_config.items()
+            if str(key).strip() and str(value).strip()
+        }
+    }
+    state_path.write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return state_path
+
+
+def dump_runtime_spec(runtime: RuntimeSpec) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "version": 1,
-        "provider": {
-            "provider_type": runtime.provider.provider_type,
-            "api_style": runtime.provider.api_style,
-            "base_url": runtime.provider.base_url,
-            "api_key": runtime.provider.api_key,
-            "headers": dict(runtime.provider.headers),
-            "model_map": dict(runtime.provider.model_map),
-        },
         "settings": {
             "fallback_model": runtime.fallback_model,
             "strong_model": runtime.strong_model,
@@ -166,6 +203,56 @@ def dump_runtime_spec(runtime: RuntimeSpec) -> dict[str, Any]:
             for task_name, task in runtime.tasks.items()
         },
     }
+    providers = [_provider_spec_to_dict(provider) for provider in runtime.providers]
+    if len(providers) > 1:
+        payload["providers"] = providers
+    else:
+        payload["provider"] = _provider_spec_to_dict(runtime.provider)
+    return payload
+
+
+def _provider_specs_from_raw(raw: dict[str, Any]) -> list[ProviderSpec]:
+    providers_raw = raw.get("providers")
+    providers: list[ProviderSpec] = []
+
+    if isinstance(providers_raw, list):
+        for item in providers_raw:
+            if isinstance(item, dict):
+                providers.append(_provider_spec_from_dict(item))
+    elif isinstance(providers_raw, dict):
+        for item in providers_raw.values():
+            if isinstance(item, dict):
+                providers.append(_provider_spec_from_dict(item))
+
+    if providers:
+        return providers
+
+    provider_raw = raw.get("provider", {}) if isinstance(raw.get("provider"), dict) else {}
+    if provider_raw:
+        return [_provider_spec_from_dict(provider_raw)]
+    return []
+
+
+def _provider_spec_from_dict(raw: dict[str, Any]) -> ProviderSpec:
+    return ProviderSpec(
+        provider_type=str(raw.get("provider_type", "") or "").strip(),
+        api_style=str(raw.get("api_style", "") or "").strip(),
+        base_url=str(raw.get("base_url", "") or "").strip(),
+        api_key=str(raw.get("api_key", "") or "").strip(),
+        headers=_normalized_headers(raw.get("headers", {})),
+        model_map=_normalized_headers(raw.get("model_map", {})),
+    )
+
+
+def _provider_spec_to_dict(provider: ProviderSpec) -> dict[str, Any]:
+    return {
+        "provider_type": provider.provider_type,
+        "api_style": provider.api_style,
+        "base_url": provider.base_url,
+        "api_key": provider.api_key,
+        "headers": dict(provider.headers),
+        "model_map": dict(provider.model_map),
+    }
 
 
 def _normalized_headers(raw: Any) -> dict[str, str]:
@@ -179,14 +266,18 @@ def _normalized_headers(raw: Any) -> dict[str, str]:
 
 
 __all__ = [
+    "PROVIDER_STATE_NAME",
     "USER_CONFIG_NAME",
     "dump_runtime_spec",
     "load_runtime_spec",
+    "load_provider_state",
     "load_user_config",
+    "resolve_provider_state_file",
     "resolve_env_refs",
     "resolve_env_value",
     "resolve_user_config_file",
     "runtime_spec_from_dict",
     "user_config_dir",
+    "write_provider_state",
     "write_user_config",
 ]

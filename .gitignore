@@ -4,3 +4,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.architec/
+.ccb/
+.hippocampus/
+opencode.json

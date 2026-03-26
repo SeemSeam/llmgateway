@@ -17,6 +17,18 @@ class ProviderSpec:
     headers: dict[str, str] = field(default_factory=dict)
     model_map: dict[str, str] = field(default_factory=dict)
 
+    def is_configured(self) -> bool:
+        return any(
+            (
+                self.provider_type.strip(),
+                self.api_style.strip(),
+                self.base_url.strip(),
+                self.api_key.strip(),
+                self.headers,
+                self.model_map,
+            )
+        )
+
 
 @dataclass(slots=True, frozen=True)
 class TaskSpec:
@@ -29,17 +41,27 @@ class TaskSpec:
 
 @dataclass(slots=True, frozen=True)
 class RuntimeSpec:
-    provider: ProviderSpec
+    provider: ProviderSpec = field(default_factory=ProviderSpec)
+    providers: tuple[ProviderSpec, ...] = field(default_factory=tuple)
     fallback_model: str = ""
     strong_model: str = ""
     weak_model: str = ""
     strong_reasoning_effort: str = ""
     weak_reasoning_effort: str = ""
-    max_concurrent: int = 20
+    max_concurrent: int = 12
     retry_max: int = 3
-    timeout: float = 30.0
+    timeout: float = 90.0
     transport_retries: int = 5
     tasks: dict[str, TaskSpec] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        provider_chain = tuple(self.providers)
+        if provider_chain:
+            object.__setattr__(self, "providers", provider_chain)
+            object.__setattr__(self, "provider", provider_chain[0])
+            return
+        if self.provider.is_configured():
+            object.__setattr__(self, "providers", (self.provider,))
 
     def task(self, name: str) -> TaskSpec:
         selected = self.tasks.get(str(name or "").strip())

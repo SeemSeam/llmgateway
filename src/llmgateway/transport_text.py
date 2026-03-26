@@ -38,6 +38,11 @@ def extract_openai_chat_text(payload: object) -> str:
 def extract_openai_responses_text(payload: object) -> str:
     if not isinstance(payload, dict):
         return ""
+    nested = payload.get("response")
+    if isinstance(nested, dict):
+        nested_text = extract_openai_responses_text(nested)
+        if nested_text:
+            return nested_text
     output_text = payload.get("output_text")
     if isinstance(output_text, str) and output_text:
         return output_text
