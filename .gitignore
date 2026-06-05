@@ -6,6 +6,9 @@ build/
 *.egg-info/
 node_modules/
 *.tgz
+python/.install.json
+python/site-packages/
+python/wheels/
 .architec/
 .ccb/
 .hippocampus/

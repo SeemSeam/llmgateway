@@ -1,7 +1,7 @@
 {
   "name": "@seemseam/llmgateway",
-  "version": "0.1.1",
-  "description": "Companion npm package for llmgateway configuration metadata.",
+  "version": "0.1.2",
+  "description": "npm package that installs the Python llmgateway runtime.",
   "license": "MIT",
   "author": {
     "name": "bfly",
@@ -25,11 +25,17 @@
   ],
   "type": "commonjs",
   "main": "index.js",
+  "bin": {
+    "llmgateway-python": "bin/llmgateway-python.js"
+  },
   "exports": {
     ".": "./index.js"
   },
   "files": [
+    "bin/",
     "index.js",
+    "python/wheels/*.whl",
+    "scripts/",
     "README.md",
     "LICENSE"
   ],
@@ -37,6 +43,9 @@
     "node": ">=18"
   },
   "scripts": {
+    "prepack": "node scripts/build-python-wheel.js",
+    "postpack": "node scripts/clean-python-build.js",
+    "postinstall": "node scripts/install-python-runtime.js",
     "test": "node --test test/npm-package.test.js",
     "pack:dry-run": "npm pack --dry-run"
   },

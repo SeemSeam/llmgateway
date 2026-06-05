@@ -5,7 +5,12 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  isPythonRuntimeInstalled,
   packageMetadata,
+  pythonEnv,
+  pythonSitePackagesDir,
+  pythonWheelsDir,
+  resolveBundledWheel,
   resolveProviderStateFile,
   resolveUserConfigFile,
   userConfigDir,
@@ -13,7 +18,7 @@ const {
 
 test("exports package metadata", () => {
   assert.equal(packageMetadata.name, "@seemseam/llmgateway");
-  assert.equal(packageMetadata.version, "0.1.1");
+  assert.equal(packageMetadata.version, "0.1.2");
   assert.equal(packageMetadata.primaryRuntime, "python");
 });
 
@@ -36,4 +41,18 @@ test("honors explicit environment overrides", () => {
   assert.equal(userConfigDir(env), path.resolve("/tmp/custom-dir"));
   assert.equal(resolveUserConfigFile(env), path.resolve("/tmp/custom-config.yaml"));
   assert.equal(resolveProviderStateFile(env), path.resolve("/tmp/custom-provider-state.json"));
+});
+
+test("exposes Python runtime package paths", () => {
+  const root = path.resolve("/tmp/llmgateway-package");
+  assert.equal(pythonSitePackagesDir(root), path.join(root, "python", "site-packages"));
+  assert.equal(pythonWheelsDir(root), path.join(root, "python", "wheels"));
+  assert.equal(resolveBundledWheel(root), "");
+  assert.equal(isPythonRuntimeInstalled(root), false);
+});
+
+test("builds PYTHONPATH environment for vendored runtime", () => {
+  const root = path.resolve("/tmp/llmgateway-package");
+  const env = pythonEnv({PYTHONPATH: "/tmp/existing"}, root);
+  assert.equal(env.PYTHONPATH, `${path.join(root, "python", "site-packages")}${path.delimiter}/tmp/existing`);
 });

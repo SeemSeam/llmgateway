@@ -18,16 +18,18 @@ package with:
 python3 -m pip install llmgateway
 ```
 
-After first npm publication is complete and verified, install the companion npm
-package with:
+After npm publication is complete and verified, install the npm package with:
 
 ```bash
 npm install @seemseam/llmgateway
 ```
 
-The npm package is a lightweight companion for JavaScript tooling that needs
-package metadata or the same default config paths. It does not implement LLM
-transport and does not install the Python package automatically.
+The npm package carries the Python `llmgateway` wheel. During `postinstall` it
+uses Python and pip to install that wheel into the package-private
+`python/site-packages/` directory. Runtime dependencies such as `httpx` and
+`PyYAML` are resolved by pip during that install. Set
+`LLMGATEWAY_SKIP_PYTHON_INSTALL=1` only when you intentionally want to install
+the npm package without the Python runtime.
 
 For local development from a checkout:
 
@@ -36,7 +38,8 @@ python3 -m pip install -e ".[dev]"
 npm test
 ```
 
-Python 3.10 or newer is required.
+Python 3.10 or newer with pip is required for both Python usage and npm
+postinstall.
 
 ## Configuration
 
@@ -132,6 +135,36 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## npm Runtime Usage
+
+The npm package exports helpers for locating the installed Python runtime:
+
+```js
+const {pythonEnv, pythonSitePackagesDir} = require("@seemseam/llmgateway");
+
+console.log(pythonSitePackagesDir());
+```
+
+Use `pythonEnv()` when spawning Python from Node so the package-private runtime
+is on `PYTHONPATH`:
+
+```js
+const {spawnSync} = require("node:child_process");
+const {pythonEnv} = require("@seemseam/llmgateway");
+
+spawnSync(
+  "python3",
+  ["-c", "import llmgateway; print(llmgateway.__name__)"],
+  {env: pythonEnv(), stdio: "inherit"},
+);
+```
+
+The package also installs a small helper command:
+
+```bash
+npx llmgateway-python -c "import llmgateway; print(llmgateway.__name__)"
+```
+
 ## Development
 
 Run the test suite:
@@ -170,7 +203,8 @@ PY
 ## Publishing
 
 Keep `version` in `pyproject.toml` and `package.json` synchronized before
-publishing a new release. Then run the clean build and metadata checks above.
+publishing a new release. Version `0.1.1` is already published on npm, so the
+next runtime-carrying npm package must use a new version such as `0.1.2`.
 
 First PyPI publication should be done only after confirming the `llmgateway`
 project is available on PyPI and the release owner has configured a safe
@@ -195,11 +229,11 @@ print(llmgateway.__name__, Gateway.__name__)
 PY
 ```
 
-This repository now has npm package metadata, but first npm publication still
-requires release-owner action. Before first npm publication, verify that the
-`@seemseam/llmgateway` package name is still available and that the publishing
-account has access to the `@seemseam` npm scope. Inspect the tarball contents
-and publish only from a committed release state:
+Before npm publication, verify that the publishing account has access to the
+`@seemseam` npm scope. `npm pack` runs `prepack`, builds the Python wheel into
+`python/wheels/`, includes that wheel in the npm tarball, and then cleans the
+temporary build output with `postpack`. Inspect the tarball contents and publish
+only from a committed release state:
 
 ```bash
 npm test
@@ -213,6 +247,14 @@ committed checkout:
 npm publish --access public
 ```
 
-The npm package is intentionally a companion package, not a full JavaScript or
-TypeScript SDK. A real JS/TS LLM gateway API should be designed before expanding
+After publishing, verify that npm installation installs the Python runtime:
+
+```bash
+tmp=$(mktemp -d)
+npm install --prefix "$tmp" @seemseam/llmgateway@0.1.2
+"$tmp/node_modules/.bin/llmgateway-python" -c "import llmgateway; print(llmgateway.__name__)"
+```
+
+The npm package exposes installation/runtime helpers, not a native JavaScript or
+TypeScript LLM gateway API. A real JS/TS API should be designed before expanding
 the npm runtime surface.
