@@ -12,7 +12,7 @@ const {
 } = require("../index.js");
 
 test("exports package metadata", () => {
-  assert.equal(packageMetadata.name, "seemseam-llmgateway");
+  assert.equal(packageMetadata.name, "@seemseam/llmgateway");
   assert.equal(packageMetadata.version, "0.1.1");
   assert.equal(packageMetadata.primaryRuntime, "python");
 });

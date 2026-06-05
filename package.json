@@ -1,5 +1,5 @@
 {
-  "name": "seemseam-llmgateway",
+  "name": "@seemseam/llmgateway",
   "version": "0.1.1",
   "description": "Companion npm package for llmgateway configuration metadata.",
   "license": "MIT",

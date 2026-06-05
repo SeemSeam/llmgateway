@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const packageMetadata = Object.freeze({
-  name: "seemseam-llmgateway",
+  name: "@seemseam/llmgateway",
   version: "0.1.1",
   pythonPackage: "llmgateway",
   primaryRuntime: "python",
