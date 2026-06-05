@@ -1,0 +1,47 @@
+{
+  "name": "llmgateway",
+  "version": "0.1.1",
+  "description": "Companion npm package for llmgateway configuration metadata.",
+  "license": "MIT",
+  "author": {
+    "name": "bfly",
+    "email": "bfly123@126.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bfly123/llmgateway.git"
+  },
+  "homepage": "https://github.com/bfly123/llmgateway#readme",
+  "bugs": {
+    "url": "https://github.com/bfly123/llmgateway/issues"
+  },
+  "keywords": [
+    "llm",
+    "gateway",
+    "configuration",
+    "openai",
+    "anthropic",
+    "litellm"
+  ],
+  "type": "commonjs",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/npm-package.test.js",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}
