@@ -1,45 +1,32 @@
 # llmgateway
 
 `llmgateway` is a small async Python library for routing LLM calls through one
-or more providers. It provides shared runtime configuration, provider failover,
-concurrency limits, retry helpers, JSON parsing helpers, and task-to-model
-routing.
+or more LLM providers. It provides shared runtime configuration, provider
+failover, concurrency limits, retry helpers, JSON parsing helpers, and
+task-to-model routing.
 
-It is designed for applications that want one internal API while switching
-between OpenAI-compatible Responses APIs, Anthropic Messages, or LiteLLM-style
-backends.
+It is designed for Python applications that want one internal API while
+switching between OpenAI-compatible Responses APIs, Anthropic Messages, or
+LiteLLM-style backends.
 
 ## Install
 
-After first PyPI publication is complete and verified, install the Python
-package with:
+After the PyPI package is published and verified, install it with:
 
 ```bash
 python3 -m pip install llmgateway
 ```
 
-After npm publication is complete and verified, install the npm package with:
-
-```bash
-npm install @seemseam/llmgateway
-```
-
-The npm package carries the Python `llmgateway` wheel. During `postinstall` it
-uses Python and pip to install that wheel into the package-private
-`python/site-packages/` directory. Runtime dependencies such as `httpx` and
-`PyYAML` are resolved by pip during that install. Set
-`LLMGATEWAY_SKIP_PYTHON_INSTALL=1` only when you intentionally want to install
-the npm package without the Python runtime.
-
 For local development from a checkout:
 
 ```bash
 python3 -m pip install -e ".[dev]"
-npm test
 ```
 
-Python 3.10 or newer with pip is required for both Python usage and npm
-postinstall.
+Python 3.10 or newer is required.
+
+There is no maintained npm package for this runtime. `llmgateway` is a Python
+dependency package; npm publication is not needed for normal use.
 
 ## Configuration
 
@@ -48,8 +35,8 @@ path `~/.llmgateway/config.yaml`. The environment variables
 `LLMGATEWAY_CONFIG`, `LLMGATEWAY_USER_CONFIG_DIR`, and
 `LLMGATEWAY_PROVIDER_STATE` can override config and provider-state locations.
 
-See [llmgateway.example.yaml](llmgateway.example.yaml) for a larger template.
-A minimal single-provider config looks like this:
+See [llmgateway.example.yaml](llmgateway.example.yaml) for a larger template. A
+minimal single-provider config looks like this:
 
 ```yaml
 version: 1
@@ -135,36 +122,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## npm Runtime Usage
-
-The npm package exports helpers for locating the installed Python runtime:
-
-```js
-const {pythonEnv, pythonSitePackagesDir} = require("@seemseam/llmgateway");
-
-console.log(pythonSitePackagesDir());
-```
-
-Use `pythonEnv()` when spawning Python from Node so the package-private runtime
-is on `PYTHONPATH`:
-
-```js
-const {spawnSync} = require("node:child_process");
-const {pythonEnv} = require("@seemseam/llmgateway");
-
-spawnSync(
-  "python3",
-  ["-c", "import llmgateway; print(llmgateway.__name__)"],
-  {env: pythonEnv(), stdio: "inherit"},
-);
-```
-
-The package also installs a small helper command:
-
-```bash
-npx llmgateway-python -c "import llmgateway; print(llmgateway.__name__)"
-```
-
 ## Development
 
 Run the test suite:
@@ -202,14 +159,19 @@ PY
 
 ## Publishing
 
-Keep `version` in `pyproject.toml` and `package.json` synchronized before
-publishing a new release. Version `0.1.1` is already published on npm, so the
-next runtime-carrying npm package must use a new version such as `0.1.2`.
+Version `0.1.2` is the current PyPI release candidate. Publish only from a
+clean, committed release state after confirming the `llmgateway` project is
+available on PyPI and the release owner has configured a safe publication path.
 
-First PyPI publication should be done only after confirming the `llmgateway`
-project is available on PyPI and the release owner has configured a safe
-publication path. Publish with a configured API token or Trusted Publisher
-environment:
+Build and validate:
+
+```bash
+rm -rf build dist *.egg-info src/*.egg-info
+python3 -m build
+python3 -m twine check dist/*
+```
+
+Publish to PyPI with a configured API token or Trusted Publisher environment:
 
 ```bash
 python3 -m twine upload dist/*
@@ -220,7 +182,7 @@ After publishing, verify the released package from PyPI:
 ```bash
 python3 -m venv /tmp/llmgateway-pypi-smoke
 /tmp/llmgateway-pypi-smoke/bin/python -m pip install --upgrade pip
-/tmp/llmgateway-pypi-smoke/bin/python -m pip install llmgateway
+/tmp/llmgateway-pypi-smoke/bin/python -m pip install llmgateway==0.1.2
 /tmp/llmgateway-pypi-smoke/bin/python - <<'PY'
 import llmgateway
 from llmgateway import Gateway
@@ -228,33 +190,3 @@ from llmgateway import Gateway
 print(llmgateway.__name__, Gateway.__name__)
 PY
 ```
-
-Before npm publication, verify that the publishing account has access to the
-`@seemseam` npm scope. `npm pack` runs `prepack`, builds the Python wheel into
-`python/wheels/`, includes that wheel in the npm tarball, and then cleans the
-temporary build output with `postpack`. Inspect the tarball contents and publish
-only from a committed release state:
-
-```bash
-npm test
-npm pack --dry-run
-```
-
-First npm publication can then be done by the release owner from a clean,
-committed checkout:
-
-```bash
-npm publish --access public
-```
-
-After publishing, verify that npm installation installs the Python runtime:
-
-```bash
-tmp=$(mktemp -d)
-npm install --prefix "$tmp" @seemseam/llmgateway@0.1.2
-"$tmp/node_modules/.bin/llmgateway-python" -c "import llmgateway; print(llmgateway.__name__)"
-```
-
-The npm package exposes installation/runtime helpers, not a native JavaScript or
-TypeScript LLM gateway API. A real JS/TS API should be designed before expanding
-the npm runtime surface.
