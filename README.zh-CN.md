@@ -40,7 +40,7 @@ GitHub 安装或本地开发安装方式，等发布完成后再切换到 regist
 如果需要使用当前仓库源码，而不是等待 registry 发布，可以直接从 GitHub 安装：
 
 ```bash
-python3 -m pip install "llmgateway @ git+https://github.com/bfly123/llmgateway.git"
+python3 -m pip install "llmgateway @ git+https://github.com/seemseam/llmgateway.git"
 ```
 
 ### 本地开发安装
@@ -48,7 +48,7 @@ python3 -m pip install "llmgateway @ git+https://github.com/bfly123/llmgateway.g
 从本地 checkout 安装开发环境：
 
 ```bash
-git clone https://github.com/bfly123/llmgateway.git
+git clone https://github.com/seemseam/llmgateway.git
 cd llmgateway
 python3 -m pip install -e ".[dev]"
 ```

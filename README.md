@@ -1,7 +1,7 @@
 # llmgateway
 
-[English](https://github.com/bfly123/llmgateway#readme) |
-[Simplified Chinese](https://github.com/bfly123/llmgateway/blob/main/README.zh-CN.md)
+[English](https://github.com/seemseam/llmgateway#readme) |
+[Simplified Chinese](https://github.com/seemseam/llmgateway/blob/main/README.zh-CN.md)
 
 `llmgateway` is a small async Python library for calling large language models
 through a shared runtime configuration. It is meant to be embedded in Python
@@ -49,7 +49,7 @@ Install directly from the repository when you need the current source before a
 registry release:
 
 ```bash
-python3 -m pip install "llmgateway @ git+https://github.com/bfly123/llmgateway.git"
+python3 -m pip install "llmgateway @ git+https://github.com/seemseam/llmgateway.git"
 ```
 
 ### Local Development Install
@@ -57,7 +57,7 @@ python3 -m pip install "llmgateway @ git+https://github.com/bfly123/llmgateway.g
 From a checkout:
 
 ```bash
-git clone https://github.com/bfly123/llmgateway.git
+git clone https://github.com/seemseam/llmgateway.git
 cd llmgateway
 python3 -m pip install -e ".[dev]"
 ```
@@ -243,7 +243,7 @@ Task fields:
 - `max_tokens`: output token limit.
 
 See
-[llmgateway.example.yaml](https://github.com/bfly123/llmgateway/blob/main/llmgateway.example.yaml)
+[llmgateway.example.yaml](https://github.com/seemseam/llmgateway/blob/main/llmgateway.example.yaml)
 for a fuller multi-provider template.
 
 ## API Overview
@@ -323,8 +323,8 @@ PY
 - npm package: none maintained for this runtime
 
 The current package metadata version is `0.1.2` in
-[pyproject.toml](https://github.com/bfly123/llmgateway/blob/main/pyproject.toml).
+[pyproject.toml](https://github.com/seemseam/llmgateway/blob/main/pyproject.toml).
 
 ## License
 
-MIT. See [LICENSE](https://github.com/bfly123/llmgateway/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/seemseam/llmgateway/blob/main/LICENSE).

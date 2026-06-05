@@ -44,9 +44,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bfly123/llmgateway"
-Repository = "https://github.com/bfly123/llmgateway"
-Issues = "https://github.com/bfly123/llmgateway/issues"
+Homepage = "https://github.com/seemseam/llmgateway"
+Repository = "https://github.com/seemseam/llmgateway"
+Issues = "https://github.com/seemseam/llmgateway/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
