@@ -22,7 +22,7 @@ After first npm publication is complete and verified, install the companion npm
 package with:
 
 ```bash
-npm install llmgateway
+npm install seemseam-llmgateway
 ```
 
 The npm package is a lightweight companion for JavaScript tooling that needs
@@ -197,8 +197,8 @@ PY
 
 This repository now has npm package metadata, but first npm publication still
 requires release-owner action. Before first npm publication, verify that the
-`llmgateway` package name is still available, inspect the tarball contents, and
-publish only from a committed release state:
+`seemseam-llmgateway` package name is still available, inspect the tarball
+contents, and publish only from a committed release state:
 
 ```bash
 npm test
