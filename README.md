@@ -30,23 +30,21 @@ a hosted service, login flow, background daemon, or command-line application.
 Python 3.10 or newer is required. The runtime dependencies are `httpx` and
 `PyYAML`.
 
-### Registry Install
+### PyPI Install
 
-When the `seemseam_llmgateway` distribution is available from PyPI or your private Python
-index, install it with:
+Install the published package from PyPI:
 
 ```bash
 python3 -m pip install seemseam_llmgateway
 ```
 
-If `pip` reports that no matching distribution is available, use the GitHub or
-local development install path below until the release is published to the
-target registry.
+PyPI displays the normalized project name as `seemseam-llmgateway`; `pip`
+accepts either `seemseam_llmgateway` or `seemseam-llmgateway`. The Python import
+package remains `llmgateway`.
 
 ### GitHub Install
 
-Install directly from the repository when you need the current source before a
-registry release:
+Install directly from GitHub only when you need unreleased source changes:
 
 ```bash
 python3 -m pip install "seemseam_llmgateway @ git+https://github.com/SeemSeam/llmgateway.git"

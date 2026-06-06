@@ -24,20 +24,21 @@ Python 应用作为依赖引入，让应用内部只面对一套 API，同时可
 
 需要 Python 3.10 或更新版本。基础运行依赖是 `httpx` 和 `PyYAML`。
 
-### 从 registry 安装
+### 从 PyPI 安装
 
-当 `seemseam_llmgateway` distribution 已经发布到 PyPI 或你的私有 Python registry 后，可以这样安装：
+推荐直接从 PyPI 安装已发布版本：
 
 ```bash
 python3 -m pip install seemseam_llmgateway
 ```
 
-如果 `pip` 提示找不到匹配的 distribution，说明目标 registry 里还不可见。此时请先使用下面的
-GitHub 安装或本地开发安装方式，等发布完成后再切换到 registry 安装。
+PyPI 页面会把项目名规范化显示为 `seemseam-llmgateway`；`pip` 使用
+`seemseam_llmgateway` 或 `seemseam-llmgateway` 都可以安装。Python import 包名仍然是
+`llmgateway`。
 
 ### 从 GitHub 安装
 
-如果需要使用当前仓库源码，而不是等待 registry 发布，可以直接从 GitHub 安装：
+只有在需要使用尚未发布到 PyPI 的源码改动时，才建议直接从 GitHub 安装：
 
 ```bash
 python3 -m pip install "seemseam_llmgateway @ git+https://github.com/SeemSeam/llmgateway.git"
