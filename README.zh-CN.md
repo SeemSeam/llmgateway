@@ -26,10 +26,10 @@ Python 应用作为依赖引入，让应用内部只面对一套 API，同时可
 
 ### 从 registry 安装
 
-当 `llmgateway` distribution 已经发布到 PyPI 或你的私有 Python registry 后，可以这样安装：
+当 `seemseam_llmgateway` distribution 已经发布到 PyPI 或你的私有 Python registry 后，可以这样安装：
 
 ```bash
-python3 -m pip install llmgateway
+python3 -m pip install seemseam_llmgateway
 ```
 
 如果 `pip` 提示找不到匹配的 distribution，说明目标 registry 里还不可见。此时请先使用下面的
@@ -40,7 +40,7 @@ GitHub 安装或本地开发安装方式，等发布完成后再切换到 regist
 如果需要使用当前仓库源码，而不是等待 registry 发布，可以直接从 GitHub 安装：
 
 ```bash
-python3 -m pip install "llmgateway @ git+https://github.com/seemseam/llmgateway.git"
+python3 -m pip install "seemseam_llmgateway @ git+https://github.com/SeemSeam/llmgateway.git"
 ```
 
 ### 本地开发安装
@@ -48,7 +48,7 @@ python3 -m pip install "llmgateway @ git+https://github.com/seemseam/llmgateway.
 从本地 checkout 安装开发环境：
 
 ```bash
-git clone https://github.com/seemseam/llmgateway.git
+git clone https://github.com/SeemSeam/llmgateway.git
 cd llmgateway
 python3 -m pip install -e ".[dev]"
 ```
@@ -293,7 +293,7 @@ PY
 
 ## 包名
 
-- Python distribution 名称：`llmgateway`
+- Python distribution 名称：`seemseam_llmgateway`
 - Python import 名称：`llmgateway`
 - 命令行名称：无
 - npm 包：当前不维护此 runtime 的 npm 包
