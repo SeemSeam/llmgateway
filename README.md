@@ -27,8 +27,8 @@ a hosted service, login flow, background daemon, or command-line application.
 
 ## Install
 
-Python 3.10 or newer is required. The runtime dependencies are `httpx` and
-`PyYAML`.
+Python 3.10 or newer is required. The runtime dependencies are `httpx[http2]`
+and `PyYAML`.
 
 ### PyPI Install
 
@@ -320,7 +320,7 @@ PY
 - Command-line name: none
 - npm package: none maintained for this runtime
 
-The current package metadata version is `0.1.2` in
+The current package metadata version is `0.1.3` in
 [pyproject.toml](https://github.com/SeemSeam/llmgateway/blob/main/pyproject.toml).
 
 ## License

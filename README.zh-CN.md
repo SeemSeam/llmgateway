@@ -22,7 +22,7 @@ Python 应用作为依赖引入，让应用内部只面对一套 API，同时可
 
 ## 安装
 
-需要 Python 3.10 或更新版本。基础运行依赖是 `httpx` 和 `PyYAML`。
+需要 Python 3.10 或更新版本。基础运行依赖是 `httpx[http2]` 和 `PyYAML`。
 
 ### 从 PyPI 安装
 
@@ -299,7 +299,7 @@ PY
 - 命令行名称：无
 - npm 包：当前不维护此 runtime 的 npm 包
 
-当前包元数据版本是 [pyproject.toml](pyproject.toml) 中的 `0.1.2`。
+当前包元数据版本是 [pyproject.toml](pyproject.toml) 中的 `0.1.3`。
 
 ## License
 
